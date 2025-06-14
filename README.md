@@ -35,4 +35,5 @@ The application will start with a window size of 1200x800 pixels.
 
 ## Contributing
 
-Fork the repository, make your changes, then submit a PR. 
+Fork the repository, make your changes, then submit a PR.  
+
