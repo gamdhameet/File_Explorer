@@ -3,6 +3,10 @@ mod models;
 mod ui;
 mod operations;
 mod utils;
+mod terminal;
+mod terminal_ui;
+mod context_menu;
+mod settings;
 
 use eframe::{egui, NativeOptions};
 

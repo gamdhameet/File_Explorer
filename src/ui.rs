@@ -1,6 +1,6 @@
 use eframe::egui::{self, Color32, Context, RichText, ScrollArea, Ui};
 use crate::app::FileExplorerApp;
-use crate::models::{Theme, ViewMode};
+use crate::models::ViewMode;
 use crate::utils::{format_file_size, get_file_icon};
 
 pub fn show_top_panel(app: &mut FileExplorerApp, ctx: &Context) {
@@ -32,7 +32,7 @@ pub fn show_top_panel(app: &mut FileExplorerApp, ctx: &Context) {
             
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui.button("⚙ Settings").clicked() {
-                    app.show_settings = !app.show_settings;
+                    app.settings_window.show = true;
                 }
                 
                 if ui.button("⭐ Bookmarks").clicked() {
@@ -56,27 +56,16 @@ pub fn show_top_panel(app: &mut FileExplorerApp, ctx: &Context) {
             ui.separator();
             
             ui.label("View:");
-            ui.selectable_value(&mut app.view_mode, ViewMode::List, "📋 List");
-            ui.selectable_value(&mut app.view_mode, ViewMode::Grid, "⊞ Grid");
+            ui.selectable_value(&mut app.settings.view_mode, ViewMode::List, "📋 List");
+            ui.selectable_value(&mut app.settings.view_mode, ViewMode::Grid, "⊞ Grid");
             
             ui.separator();
             
-            ui.label("Theme:");
-            ui.selectable_value(&mut app.theme, Theme::Light, "☀ Light");
-            ui.selectable_value(&mut app.theme, Theme::Dark, "🌙 Dark");
+            if ui.button("🔄 Refresh").clicked() {
+                app.read_directory();
+            }
         });
 
-        // Settings panel
-        if app.show_settings {
-            ui.separator();
-            ui.horizontal(|ui| {
-                ui.label("Settings:");
-                if ui.checkbox(&mut app.show_hidden, "Show hidden files").changed() {
-                    app.read_directory();
-                }
-            });
-        }
-        
         // Bookmarks panel
         if app.show_bookmarks {
             ui.separator();
@@ -123,7 +112,7 @@ pub fn show_top_panel(app: &mut FileExplorerApp, ctx: &Context) {
 }
 
 pub fn show_file_list(app: &mut FileExplorerApp, ui: &mut Ui) {
-    match app.view_mode {
+    match app.settings.view_mode {
         ViewMode::List => show_list_view(app, ui),
         ViewMode::Grid => show_grid_view(app, ui),
     }
@@ -143,6 +132,7 @@ fn show_list_view(app: &mut FileExplorerApp, ui: &mut Ui) {
         
         // Clone entries to avoid borrow issues
         let entries = app.entries.clone();
+        let ctx = ui.ctx().clone();
         for (i, entry) in entries.iter().enumerate() {
             let response = ui.horizontal(|ui| {
                 let icon = get_file_icon(entry);
@@ -163,7 +153,7 @@ fn show_list_view(app: &mut FileExplorerApp, ui: &mut Ui) {
                 response
             }).inner;
             
-            app.handle_file_interaction(response, i);
+            app.handle_file_interaction(response, i, &ctx);
         }
     });
 }
@@ -173,6 +163,7 @@ fn show_grid_view(app: &mut FileExplorerApp, ui: &mut Ui) {
         ui.horizontal_wrapped(|ui| {
             // Clone entries to avoid borrow issues
             let entries = app.entries.clone();
+            let ctx = ui.ctx().clone();
             for (i, entry) in entries.iter().enumerate() {
                 let icon = get_file_icon(&entry);
                 let selected = app.selected_entries.contains(&i);
@@ -187,56 +178,10 @@ fn show_grid_view(app: &mut FileExplorerApp, ui: &mut Ui) {
                     response
                 }).inner;
                 
-                app.handle_file_interaction(response, i);
+                app.handle_file_interaction(response, i, &ctx);
             }
         });
     });
-}
-
-pub fn show_context_menu(app: &mut FileExplorerApp, ctx: &Context) {
-    if let (Some(pos), Some(_)) = (app.context_menu_pos, app.context_menu_index) {
-        egui::Area::new("context_menu".into())
-            .fixed_pos(pos)
-            .order(egui::Order::Foreground)
-            .show(ctx, |ui| {
-                egui::Frame::popup(ui.style()).show(ui, |ui| {
-                    if ui.button("📋 Copy").clicked() {
-                        app.copy_selected();
-                        app.context_menu_pos = None;
-                    }
-                    if ui.button("✂️ Cut").clicked() {
-                        app.cut_selected();
-                        app.context_menu_pos = None;
-                    }
-                    if ui.button("📁 Paste").clicked() {
-                        app.paste();
-                        app.context_menu_pos = None;
-                    }
-                    ui.separator();
-                    if ui.button("🗑️ Delete").clicked() {
-                        app.delete_selected();
-                        app.context_menu_pos = None;
-                    }
-                    if ui.button("✏️ Rename").clicked() && app.selected_entries.len() == 1 {
-                        app.show_rename_dialog = true;
-                        app.rename_index = Some(app.selected_entries[0]);
-                        app.rename_text = app.entries[app.selected_entries[0]].name.clone();
-                        app.context_menu_pos = None;
-                    }
-                    ui.separator();
-                    if ui.button("ℹ️ Properties").clicked() && app.selected_entries.len() == 1 {
-                        app.show_properties_dialog = true;
-                        app.properties_file = Some(app.entries[app.selected_entries[0]].clone());
-                        app.context_menu_pos = None;
-                    }
-                });
-            });
-        
-        if ctx.input(|i| i.pointer.any_click()) {
-            app.context_menu_pos = None;
-            app.context_menu_index = None;
-        }
-    }
 }
 
 pub fn show_dialogs(app: &mut FileExplorerApp, ctx: &Context) {
@@ -349,54 +294,4 @@ pub fn show_dialogs(app: &mut FileExplorerApp, ctx: &Context) {
                 }
             });
     }
-}
-
-pub fn show_terminal(app: &mut FileExplorerApp, ctx: &Context) {
-    egui::TopBottomPanel::bottom("terminal_panel").resizable(true).show(ctx, |ui| {
-        ui.label(RichText::new("Terminal").strong());
-        ui.separator();
-        
-        ScrollArea::vertical()
-            .stick_to_bottom(true)
-            .max_height(200.0)
-            .show(ui, |ui| {
-                for line in &app.terminal_output {
-                    ui.label(line);
-                }
-            });
-
-        ui.separator();
-        ui.horizontal(|ui| {
-            ui.label("$");
-            let response = ui.text_edit_singleline(&mut app.terminal_input);
-            
-            if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                app.execute_command(&app.terminal_input.clone());
-                app.terminal_input.clear();
-                response.request_focus();
-            }
-
-            if response.has_focus() {
-                if ui.input(|i| i.key_pressed(egui::Key::ArrowUp)) && !app.terminal_history.is_empty() {
-                    if app.terminal_history_index > 0 {
-                        app.terminal_history_index -= 1;
-                        app.terminal_input = app.terminal_history[app.terminal_history_index].clone();
-                    }
-                } else if ui.input(|i| i.key_pressed(egui::Key::ArrowDown)) && !app.terminal_history.is_empty() {
-                    if app.terminal_history_index < app.terminal_history.len() - 1 {
-                        app.terminal_history_index += 1;
-                        app.terminal_input = app.terminal_history[app.terminal_history_index].clone();
-                    } else {
-                        app.terminal_history_index = app.terminal_history.len();
-                        app.terminal_input.clear();
-                    }
-                }
-            }
-
-            if ui.button("Execute").clicked() && !app.terminal_input.trim().is_empty() {
-                app.execute_command(&app.terminal_input.clone());
-                app.terminal_input.clear();
-            }
-        });
-    });
 } 

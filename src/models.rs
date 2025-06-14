@@ -18,13 +18,13 @@ pub struct FileEntry {
     pub extension: String,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Serialize, Deserialize, Clone)]
 pub enum ViewMode {
     List,
     Grid,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Serialize, Deserialize, Clone)]
 pub enum Theme {
     Light,
     Dark,
